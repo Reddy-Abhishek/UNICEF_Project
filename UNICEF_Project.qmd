@@ -1,0 +1,384 @@
+---
+title: "UNICEF Malaria Testing: A Global Challenge for Children Under 5"
+author: "Abhishek Reddy Devarapally"
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+    toc: true
+    toc-depth: 3
+    toc-title: "Table of Contents"
+    theme: cosmo
+    highlight-style: github
+    fig-width: 10
+    fig-height: 6
+    fig-dpi: 300
+---
+
+# The Global Challenge of Malaria Testing in Children
+
+## Executive Summary
+
+Malaria remains one of the most significant public health challenges in many parts of the world, particularly affecting children under five years of age. Early diagnosis through proper testing is crucial for effective treatment and prevention of complications. This report analyzes UNICEF data on malaria testing rates for children under five across multiple countries, examining trends over time, geographical patterns, and relationships with socioeconomic factors.
+
+The analysis reveals **significant disparities** in malaria testing rates among different regions and countries, with some nations demonstrating remarkable progress while others lag behind. We also identify important correlations between economic indicators, healthcare infrastructure, and malaria testing rates that provide valuable insights for policymakers and healthcare organizations.
+
+## Data Overview and Preparation
+
+```{python}
+#| label: setup
+#| include: false
+
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from plotnine import *
+import plotnine as p9
+import warnings
+warnings.filterwarnings('ignore')
+
+# For mapping
+import geopandas as gpd
+```
+
+```{python}
+#| label: data-loading
+#| warning: false
+
+# Load the UNICEF data
+df = pd.read_csv('Cleaned_UNICEF_Data.csv')
+
+# Display basic info about the dataset
+print(f"Dataset shape: {df.shape}")
+print(f"Number of countries: {df['Country'].nunique()}")
+print(f"Year range: {df['Year'].min()} to {df['Year'].max()}")
+
+# Display the first few rows
+df.head()
+```
+
+```{python}
+#| label: data-summary
+
+# Create summary statistics
+summary = df.groupby('Country')['Malaria_Test_Percent'].agg(['mean', 'min', 'max', 'count']).sort_values('mean', ascending=False)
+summary.columns = ['Average Testing Rate (%)', 'Minimum Rate (%)', 'Maximum Rate (%)', 'Number of Records']
+
+# Display top 10 countries by average testing rate
+summary.head(10)
+```
+
+## Data Preprocessing
+
+```{python}
+#| label: data-preprocessing
+
+# Filter for rows with 'Total' sex to avoid duplication in some visualizations
+df_total = df[df['Sex'] == 'Total']
+
+# Create a new dataframe with the latest data for each country
+latest_data = df_total.sort_values('Year').groupby('Country').tail(1).copy()
+
+# Instead of using geodatasets, use geopandas direct download
+url = "https://naciscdn.org/naturalearth/110m/cultural/ne_110m_admin_0_countries.zip"
+world = gpd.read_file(url)
+
+# Check column names to identify the country name column
+print("World shapefile columns:", world.columns.tolist())
+
+# Rename the country name column to 'Country' for merging with our dataset
+world = world.rename(columns={'NAME': 'Country'})
+
+# Some countries might have different names in the datasets, create a mapping
+country_mapping = {
+    'Tanzania': 'Tanzania, United Republic of',
+    'Democratic Republic of the Congo': 'Congo, Democratic Republic of the',
+    'Republic of the Congo': 'Congo',
+    'United States of America': 'United States',
+    # Add more mappings if needed based on your data
+}
+
+# Apply mapping to the world dataframe (not our data)
+world['Country'] = world['Country'].replace(country_mapping)
+
+# Merge the world geometry with our data for mapping
+world_data = world.merge(latest_data, on='Country', how='left')
+
+# Check how many countries were successfully matched
+matched_countries = world_data.dropna(subset=['Malaria_Test_Percent'])
+print(f"Successfully matched {len(matched_countries)} countries")
+```
+
+## Global Distribution of Malaria Testing Rates
+
+The map below shows the geographical distribution of malaria testing rates for children under five years old across the world. Countries in darker shades have higher testing rates, while lighter shades indicate lower rates. Grey areas represent countries where data is not available.
+
+```{python}
+#| label: world-map
+#| fig-cap: "Global Distribution of Malaria Testing Rates for Children Under 5"
+#| warning: false
+
+# Create a world map visualization with plotnine
+# First convert the GeoDataFrame to a regular DataFrame for plotting with plotnine
+world_data_df = pd.DataFrame({
+    'Country': world_data['Country'],
+    'Malaria_Test_Percent': world_data['Malaria_Test_Percent'],
+    'geometry': world_data['geometry']
+})
+
+# Create a matplotlib figure for the map
+fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+
+# Plot countries with data
+world_data.plot(column='Malaria_Test_Percent', 
+               cmap='YlOrRd', 
+               linewidth=0.8, 
+               ax=ax, 
+               edgecolor='0.8',
+               legend=True,
+               missing_kwds={'color': 'lightgrey'})
+
+# Add a title and remove axis
+ax.set_title('Global Distribution of Malaria Testing Rates for Children Under 5', fontsize=15)
+ax.set_axis_off()
+
+# Show the plot
+plt.show()
+```
+
+### Key Observations from the Map
+
+* **Geographical Concentration**: Malaria testing data is primarily available from African countries, reflecting the continent's higher malaria burden.
+* **Regional Variations**: There are significant variations in testing rates even among neighboring countries, suggesting differences in healthcare systems and priorities.
+* **Data Gaps**: Many countries in Asia, Europe, and the Americas have no data available, which may indicate either lower malaria prevalence or gaps in reporting.
+
+## Leading Countries in Malaria Testing
+
+The following bar chart shows the top 10 countries with the highest malaria testing rates based on the most recent data available for each country.
+
+```{python}
+# Select top 10 countries by malaria testing rate
+top10_countries = latest_data.sort_values('Malaria_Test_Percent', ascending=False).head(10)
+
+# Create bar chart with plotnine
+bar_chart = (
+    ggplot(top10_countries, aes(x='reorder(Country, -Malaria_Test_Percent)', y='Malaria_Test_Percent', fill='Malaria_Test_Percent')) +
+    geom_bar(stat='identity', show_legend=False) +
+    scale_fill_gradient(low='#ffed6f', high='#ff7f00') +
+    coord_flip() +
+    labs(
+        title='Top 10 Countries by Malaria Testing Rate',
+        x='Country',
+        y='Malaria Testing Rate (%)'
+    ) +
+    theme_minimal() +
+    theme(
+        plot_title=element_text(size=15, face='bold'),
+        axis_text=element_text(size=10),
+        axis_title=element_text(size=12),
+        figure_size=(10, 6)
+    )
+)
+
+# This will actually display the plot
+bar_chart.draw()
+
+```
+
+### Key Insights from Top Performers
+
+* **Zambia** leads with a testing rate over 60%, showcasing remarkable achievements in malaria diagnostics.
+* **Burkina Faso** follows closely behind, demonstrating strong progress in recent years.
+* Most top-performing countries have achieved testing rates above 30%, indicating significant improvements in malaria diagnosis capabilities.
+* These success stories provide valuable best practices that could be applied to other regions.
+
+## Relationship Between Economic Factors and Malaria Testing
+
+Understanding the relationship between economic development and healthcare outcomes is crucial. The scatter plot below explores the correlation between GDP per capita and malaria testing rates, with additional dimensions showing population size and life expectancy.
+
+```{python}
+#| label: scatter-plot
+#| fig-cap: "Relationship Between GDP per Capita and Malaria Testing Rate"
+
+# Filter out countries with missing GDP data
+gdp_data = latest_data.dropna(subset=['GDP per capita (constant 2015 US$)', 'Malaria_Test_Percent'])
+
+# Create scatter plot with regression line
+scatter_plot = (
+    ggplot(gdp_data, aes(x='GDP per capita (constant 2015 US$)', y='Malaria_Test_Percent')) +
+    geom_point(aes(size='Population, total', color='Life expectancy at birth, total (years)'), alpha=0.7) +
+    geom_smooth(method='lm', color='red', fill='pink', alpha=0.3) +
+    scale_color_gradient(low='blue', high='red') +
+    labs(
+        title='Relationship Between GDP per Capita and Malaria Testing Rate',
+        x='GDP per Capita (constant 2015 US$)',
+        y='Malaria Testing Rate (%)',
+        color='Life Expectancy (years)',
+        size='Population'
+    ) +
+    theme_minimal() +
+    theme(
+        plot_title=element_text(size=15, face='bold'),
+        axis_text=element_text(size=10),
+        axis_title=element_text(size=12),
+        legend_title=element_text(size=10),
+        legend_text=element_text(size=8),
+        figure_size=(12, 8)
+    )
+)
+
+# Just call the object to render
+scatter_plot.draw()
+
+```
+
+```{python}
+#| label: regression-analysis
+#| code-fold: true
+
+# Perform regression analysis
+from statsmodels.formula.api import ols
+model = ols('Malaria_Test_Percent ~ Q("GDP per capita (constant 2015 US$)")', data=gdp_data).fit()
+print(model.summary())
+```
+
+### Economic Analysis Findings
+
+* There appears to be a **weak negative correlation** between GDP per capita and malaria testing rates.
+* This counterintuitive finding may suggest that:
+  1. Countries with higher malaria burden (often lower GDP) have prioritized testing programs
+  2. International aid may be effectively targeting lower-income countries
+  3. Middle-income countries might be underreporting or have different healthcare priorities
+* Countries with similar economic conditions show widely varying testing rates, indicating that **policy choices and healthcare system design** play significant roles beyond economic factors.
+
+## Progress Over Time: Malaria Testing Trends
+
+To understand the evolution of malaria testing efforts, we analyze the trends over time for selected countries that have multiple years of data available.
+
+```{python}
+#| label: time-series
+#| fig-cap: "Malaria Testing Rate Trends (2010-2023)"
+
+# Select countries with data across multiple years
+countries_with_multiple_years = df_total.groupby('Country').filter(lambda x: len(x['Year'].unique()) >= 3)
+
+# Select a few interesting countries for the time series
+selected_countries = ['Zambia', 'Benin', 'Zimbabwe', 'Burkina Faso']  
+time_series_data = countries_with_multiple_years[countries_with_multiple_years['Country'].isin(selected_countries)]
+
+# Create time series plot
+time_series_plot = (
+    ggplot(time_series_data, aes(x='Year', y='Malaria_Test_Percent', color='Country', group='Country')) +
+    geom_line(size=1) +
+    geom_point(size=3) +
+    scale_color_brewer(type='qual', palette='Set1') +
+    labs(
+        title='Malaria Testing Rate Trends (2010-2023)',
+        x='Year',
+        y='Malaria Testing Rate (%)'
+    ) +
+    theme_minimal() +
+    theme(
+        plot_title=element_text(size=15, face='bold'),
+        axis_text=element_text(size=10),
+        axis_title=element_text(size=12),
+        legend_title=element_text(size=10),
+        legend_text=element_text(size=8),
+        figure_size=(12, 8)
+    )
+)
+
+time_series_plot.draw()
+
+```
+
+### Trend Analysis Highlights
+
+* **Consistent Progress**: All selected countries show an upward trend in malaria testing rates over the years, with Zambia demonstrating the most dramatic improvement.
+* **Acceleration since 2010**: The steepest increases occurred after 2010, coinciding with global health initiatives focused on malaria.
+* **Burkina Faso's Leap**: Burkina Faso showed remarkable acceleration after 2014, jumping from about 30% to over 60% testing rate.
+* **Varied Starting Points**: Countries began at different baselines, with Zimbabwe starting at around 7% in 2011 while others were already above 15%.
+
+## Gender Analysis: Testing Rates by Sex
+
+Understanding gender disparities in healthcare access is vital for developing inclusive policies. The following analysis compares malaria testing rates between male and female children.
+
+```{python}
+#| label: gender-analysis
+#| fig-cap: "Malaria Testing Rate by Gender"
+
+# Filter for data with gender information
+gender_data = df[df['Sex'] != 'Total'].copy()
+
+# Select countries with data for both genders
+countries_with_both_genders = gender_data.groupby('Country')['Sex'].nunique().reset_index()
+countries_with_both_genders = countries_with_both_genders[countries_with_both_genders['Sex'] == 2]['Country'].tolist()
+
+# Filter data for these countries
+gender_comparison = gender_data[gender_data['Country'].isin(countries_with_both_genders)].copy()
+
+# Calculate the latest data for each country and gender
+latest_gender_data = gender_comparison.sort_values('Year').groupby(['Country', 'Sex']).tail(1)
+
+# Calculate gender gap
+gender_pivot = latest_gender_data.pivot(index='Country', columns='Sex', values='Malaria_Test_Percent').reset_index()
+gender_pivot['Gender_Gap'] = gender_pivot['Male'] - gender_pivot['Female']
+
+# Sort by absolute gender gap
+gender_pivot = gender_pivot.sort_values(by='Gender_Gap', key=abs, ascending=False).head(10)
+
+# Reshape for plotting
+plot_data = gender_pivot.melt(id_vars=['Country', 'Gender_Gap'], 
+                             value_vars=['Male', 'Female'], 
+                             var_name='Sex', 
+                             value_name='Testing_Rate')
+
+# Create the plot
+gender_plot = (
+    ggplot(plot_data, aes(x='Country', y='Testing_Rate', fill='Sex')) +
+    geom_bar(stat='identity', position='dodge') +
+    scale_fill_manual(values=['#66b3ff', '#ff9999']) +
+    labs(
+        title='Gender Comparison in Malaria Testing Rates',
+        subtitle='Top 10 Countries with Largest Gender Gaps',
+        x='Country',
+        y='Malaria Testing Rate (%)'
+    ) +
+    coord_flip() +
+    theme_minimal() +
+    theme(
+        plot_title=element_text(size=15, face='bold'),
+        plot_subtitle=element_text(size=12),
+        axis_text=element_text(size=10),
+        axis_title=element_text(size=12),
+        figure_size=(12, 8)
+    )
+)
+
+gender_plot.draw()
+```
+
+### Gender Analysis Insights
+
+* Most countries show **small but consistent gender differences** in malaria testing rates.
+* In several countries, **male children have slightly higher testing rates** than female children.
+* This pattern suggests potential gender biases in healthcare access that warrant further investigation.
+* The gender gap varies by country, with some showing more pronounced differences than others.
+
+## Conclusion and Recommendations
+
+This analysis of UNICEF malaria testing data reveals significant progress in many countries but also highlights persistent challenges and disparities. Based on our findings, we recommend:
+
+1. **Targeted Interventions**: Focus resources on regions with lowest testing rates, using successful models from top-performing countries.
+
+2. **Gender-Sensitive Approaches**: Address gender gaps in malaria testing through programs specifically designed to ensure equal access for all children.
+
+3. **Economic Context Considerations**: Recognize that economic development alone doesn't guarantee improved testing rates - targeted healthcare policies matter more.
+
+4. **Data Collection Improvements**: Expand data collection efforts to cover more countries and gather more consistent time series data.
+
+5. **Best Practice Sharing**: Facilitate knowledge exchange between countries like Zambia and Burkina Faso that have achieved remarkable progress and those still struggling.
+
+By implementing these recommendations, UNICEF and partner organizations can continue to make strides in ensuring that all children, regardless of location or gender, have access to timely malaria testing and treatment.
